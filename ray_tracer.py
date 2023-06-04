@@ -89,40 +89,53 @@ def render_scene(camera: Camera, scene_settings, objects, width, height):
             color = render_ray(camera_position, direction, scene_settings, materials, planes, cubes, spheres, lights)
 
 
+<<<<<<< HEAD
+def render_ray(start, direction, scene_settings, materials, planes, cubes, spheres, lights, iter_num=10):
+=======
 def calc_color(start,direction,surfaces):
     x=0
+>>>>>>> 20868802e8cea060c5c3557f22069ce07bec6798
 
-def render_ray(start, direction, scene_settings, materials, planes, cubes, spheres, lights):
+    sorted_intersect = calc_intersections(start, direction, planes, cubes, spheres)# list of tuples: (object,[ts])
+    if len(sorted_intersect)==0 or iter_num==1:
+        return scene_settings.background_color
 
-    intersections = calc_intersections(start, direction, planes, cubes, spheres)# list of tuples: (object,[ts])
-    if len(intersections)==0:
-        #TODO: color = background color
-        pass
+    nearest_surface,nearest_ts = sorted_intersect[0] # t and surface
+    in_point = start+nearest_ts[0]*direction # the point where the ray hits the object
+    out_point = start+nearest_ts[-1]*direction # the point where the ray gets out of the object
 
-    nearest_surface = find_nearest(start, intersections) # t and surface
+    diffuse_color = materials[nearest_surface.material_index].diffuse_color
+    specular_color = materials[nearest_surface.material_index].specular_color
+    transparency = materials[nearest_surface.material_index].transparency
 
-    intersection_point = calc_inter_point(start, direction, nearest_surface)
+    compute_lights(direction, lights) # specular_color is calculated
 
-    compute_lights(direction, lights)
-    
-    next_start = get_transparency_vector()
-    transparency_color =  render_ray(next_start,direction)
-    
-    r_start, r_end = get_reflection_vector()
-    transparency_color =  render_ray()
+    next_start_bg = out_point 
+    bg_color =  render_ray(next_start_bg, direction, scene_settings, materials, planes, cubes, spheres, lights, iter_num-1)
+
+    next_start_reflect = in_point
+    direction_reflect = 0 #TODO: calculate the reflect angle!
+    reflection_color =  render_ray(next_start_reflect, direction_reflect, scene_settings, materials, planes, cubes, spheres, lights, iter_num-1)
+
+    output_color = transparency*bg_color + (1-transparency)*(diffuse_color + specular_color) + reflection_color
 
 def calc_intersections(start, direction, planes, cubes, spheres):
     intersect_surfaces=[]
 
     for sphere in spheres:
         t_s += calc_sphere_intersections(start, direction, sphere)
+        intersect_surfaces+=(sphere,t_s)
 
     for plane in planes:
         t_s += plane_intersect_t(plane, start, direction)
+        intersect_surfaces+=(plane,t_s)
 
     for cube in cubes:
         t_s += cube_intersect_ts(cube, start, direction)
-    return t_s
+        intersect_surfaces+=(cube,t_s)
+
+    sorted_surfaces = sorted(intersect_surfaces, key=lambda x: x[1][0])
+    return sorted_surfaces
 
 
 def calc_sphere_intersections(start, direction, sphere : Sphere):
@@ -142,9 +155,10 @@ def calc_sphere_intersections(start, direction, sphere : Sphere):
         # Two intersections
         t1 = (-b + math.sqrt(discriminant)) / (2 * a)
         t2 = (-b - math.sqrt(discriminant)) / (2 * a)
-        intersection_point1 = start + direction*t1
-        intersection_point2 = start + direction*t2
-        return [intersection_point1, intersection_point2]
+        #intersection_point1 = start + direction*t1
+        #intersection_point2 = start + direction*t2
+        ts = [t1, t2].sort()
+        return ts
 
 def plane_intersect_t(plane : InfinitePlane, start, direction_vec): #returns list of t's
     #t = -(P0 • N - d) / (V • N)
@@ -207,8 +221,8 @@ def cube_intersect_ts(cube : Cube, start, direction): #returns list of t's
     if len(intersection_points)==0:
         return []
 
-    intersection_ts=[(point-start)/np.linalg.norm(point-start) for point in intersection_points]
-
+    intersection_ts=[(point-start)[0]/direction[0] for point in intersection_points]
+    intersection_ts.sort()
     return intersection_ts
 
     #norms = np.linalg.norm(intersection_points - start, axis=1)
