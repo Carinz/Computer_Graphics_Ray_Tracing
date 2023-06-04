@@ -77,7 +77,7 @@ def get_pixel_coordinates(row, col, top_left, screen_vec_w, screen_vec_h, width,
     return pixel_coords
 
 
-def render_scene(camera: Camera, scene_settings, objects, width, height):
+def render_scene(camera: Camera, scene_settings : SceneSettings, objects, width, height):
     camera_position = np.array(camera.position)
     screen_ratio = height/width
     materials, planes, cubes, spheres, lights = seperate_objects(objects)
@@ -86,15 +86,10 @@ def render_scene(camera: Camera, scene_settings, objects, width, height):
         for col in range(width):
             pixel_coords = get_pixel_coordinates(row, col, screen_top_left, screen_vec_w, screen_vec_h, width, height)
             direction = (pixel_coords-camera_position)/np.linalg.norm(pixel_coords-camera_position)
-            color = render_ray(camera_position, direction, scene_settings, materials, planes, cubes, spheres, lights)
+            color = render_ray(camera_position, direction, scene_settings, materials, planes, cubes, spheres, lights,scene_settings.max_recursions)
 
 
-<<<<<<< HEAD
-def render_ray(start, direction, scene_settings, materials, planes, cubes, spheres, lights, iter_num=10):
-=======
-def calc_color(start,direction,surfaces):
-    x=0
->>>>>>> 20868802e8cea060c5c3557f22069ce07bec6798
+def render_ray(start, direction, scene_settings, materials, planes, cubes, spheres, lights, iter_num):
 
     sorted_intersect = calc_intersections(start, direction, planes, cubes, spheres)# list of tuples: (object,[ts])
     if len(sorted_intersect)==0 or iter_num==1:
@@ -104,11 +99,12 @@ def calc_color(start,direction,surfaces):
     in_point = start+nearest_ts[0]*direction # the point where the ray hits the object
     out_point = start+nearest_ts[-1]*direction # the point where the ray gets out of the object
 
-    diffuse_color = materials[nearest_surface.material_index].diffuse_color
+    diffuse_color = materials[nearest_surface.material_index].diffuse_color 
     specular_color = materials[nearest_surface.material_index].specular_color
     transparency = materials[nearest_surface.material_index].transparency
+    surface_material = materials[nearest_surface.material_index]
 
-    compute_lights(direction, lights) # specular_color is calculated
+    diffuse_color, specular_color = lights_colors(nearest_surface, in_point, surface_material, lights) # specular_color is calculated
 
     next_start_bg = out_point 
     bg_color =  render_ray(next_start_bg, direction, scene_settings, materials, planes, cubes, spheres, lights, iter_num-1)
@@ -118,6 +114,19 @@ def calc_color(start,direction,surfaces):
     reflection_color =  render_ray(next_start_reflect, direction_reflect, scene_settings, materials, planes, cubes, spheres, lights, iter_num-1)
 
     output_color = transparency*bg_color + (1-transparency)*(diffuse_color + specular_color) + reflection_color
+
+def lights_colors(nearest_surface, in_point, surface_material, lights):
+
+    relevant_lights = calc_relavant_lights()
+
+    diffuse_color=np.zeros(3)
+    specular_color = np.zeros(3)
+    for light in relevant_lights:
+        diffuse_light_color = light.color
+        specular_light_color = light.color*light.specular_intensity
+        diffuse_color+=diffuse_light_color*surface_material.diffuse_color
+        specular_color+=specular_light_color*surface_material.specular_color
+
 
 def calc_intersections(start, direction, planes, cubes, spheres):
     intersect_surfaces=[]
