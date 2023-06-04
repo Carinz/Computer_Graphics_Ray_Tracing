@@ -89,12 +89,7 @@ def render_scene(camera: Camera, scene_settings, objects, width, height):
             color = render_ray(camera_position, direction, scene_settings, materials, planes, cubes, spheres, lights)
 
 
-<<<<<<< HEAD
 def render_ray(start, direction, scene_settings, materials, planes, cubes, spheres, lights, iter_num=10):
-=======
-def calc_color(start,direction,surfaces):
-    x=0
->>>>>>> 20868802e8cea060c5c3557f22069ce07bec6798
 
     sorted_intersect = calc_intersections(start, direction, planes, cubes, spheres)# list of tuples: (object,[ts])
     if len(sorted_intersect)==0 or iter_num==1:
@@ -238,7 +233,7 @@ def save_image(image_array):
 
 def main():
     parser = argparse.ArgumentParser(description='Python Ray Tracer')
-    parser.add_argument('--scene_file', type=str, default='scenes/test.txt', help='Path to the scene file') #TODO change to pool
+    parser.add_argument('--scene_file', type=str, default='scenes/test_easy.txt', help='Path to the scene file') #TODO change to pool
     parser.add_argument('--output_image', type=str, default='output/test.png', help='Name of the output image file')
     parser.add_argument('--width', type=int, default=500, help='Image width')
     parser.add_argument('--height', type=int, default=500, help='Image height')
