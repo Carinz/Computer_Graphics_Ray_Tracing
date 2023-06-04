@@ -64,7 +64,7 @@ def calc_screen_parameters(camera: Camera, screen_ratio):
     screen_vec_w = screen_vec_w / np.linalg.norm(screen_vec_w)
     screen_vec_w = screen_vec_w * camera.screen_width
 
-    screen_vec_h = np.cross(screen_vec_w, camera.look_at)
+    screen_vec_h = np.cross(camera.look_at, screen_vec_w)
     screen_vec_h = screen_vec_h / np.linalg.norm(screen_vec_h)
     screen_vec_h = screen_vec_h * camera.screen_width * screen_ratio
     
@@ -90,6 +90,7 @@ def render_scene(camera: Camera, scene_settings, objects, width, height):
 
 
 def calc_color(start,direction,surfaces):
+    x=0
 
 def render_ray(start, direction, scene_settings, materials, planes, cubes, spheres, lights):
 
