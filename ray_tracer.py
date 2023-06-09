@@ -11,6 +11,21 @@ from surfaces.cube import Cube
 from surfaces.infinite_plane import InfinitePlane
 from surfaces.sphere import Sphere
 
+import time
+timing_dict = {}
+
+def write_time(start_time, key):
+    t = time.time() - start_time
+    if key in timing_dict.keys():
+        timing_dict[key][0] += t
+        timing_dict[key][1] += 1
+    else:
+        timing_dict[key] = [t, 1]
+
+def print_timings():
+    for key, val in  timing_dict.items():
+        print(f'{key}: total time = {round(val[0], 2)},   average time= {round(val[0]/val[1], 5) if val[1] > 0 else 0},    number of executions= {val[1]}')
+
 
 def parse_scene_file(file_path):
     objects = []
@@ -84,19 +99,21 @@ def render_scene(camera: Camera, scene_settings: SceneSettings, objects, width, 
     screen_top_left, screen_vec_w, screen_vec_h = calc_screen_parameters(camera, screen_ratio)
     for row in range(height):
         for col in range(width):
+            pixel_time = time.time()
             pixel_coords = get_pixel_coordinates(row, col, screen_top_left, screen_vec_w, screen_vec_h, width, height)
-            if pixel_coords[0]==0 and pixel_coords[1] == 0:
-                breakd = 0
             direction = calc_normalized_vec_between_2_points(camera.position, pixel_coords)
             color = render_ray(camera.position, direction, scene_settings, materials, planes, cubes, spheres, lights, scene_settings.max_recursions)
-            output_image[row][col] = color * 255
+            write_time(pixel_time,'render_pixel')
+            output_image[row][col] = color*255
 
     return output_image
 
 
 def render_ray(start, direction, scene_settings: SceneSettings, materials, planes, cubes, spheres, lights, iter_num):
-
+    t = time.time()
     sorted_intersect = calc_intersections(start, direction, planes, cubes, spheres)# list of tuples: (object,[ts])
+    write_time(t,'calc_intersections')
+
     if len(sorted_intersect)==0 or iter_num==1:
         return scene_settings.background_color
 
@@ -107,7 +124,9 @@ def render_ray(start, direction, scene_settings: SceneSettings, materials, plane
     material: Material = materials[nearest_surface.material_index-1]
 
     transparency_factor = material.transparency
+    t = time.time()
     direction_reflect = get_reflected_vector(nearest_surface, in_point, direction)
+
 
     reflection_color =  material.reflection_color * render_ray(in_point, 
                                                                direction_reflect, 
@@ -117,13 +136,17 @@ def render_ray(start, direction, scene_settings: SceneSettings, materials, plane
                                                                spheres, 
                                                                lights, 
                                                                iter_num-1)
+    write_time(t,'reflecting')
+
+    t = time.time()
     if transparency_factor == 0:
         transparency_color = np.zeros(3)
     else:
         transparency_color =  render_ray(out_point, direction, scene_settings, materials, planes, cubes, spheres, lights, iter_num-1)
+    write_time(t,'transparent')
 
     lights_color = get_lights_color(lights, nearest_surface, direction, in_point, material, planes, cubes, spheres)
-   
+
     output_color = transparency_factor*transparency_color + (1-transparency_factor)*lights_color + reflection_color
     return output_color
 
@@ -132,6 +155,7 @@ def get_lights_color(lights, surface, ray_direction, hitting_point, material: Ma
     final_color = 0
     for light in lights:
         #TODO: shadows!!!!!!!!!!!!!
+        t = time.time()
         surface_2_light_ray = calc_normalized_vec_between_2_points(hitting_point, light.position)
         shadow_intensity = current_shadow_intensity(light, hitting_point, surface_2_light_ray, planes, cubes, spheres)
         diffused_color = calc_diffused_color(light, surface, ray_direction, hitting_point, surface_2_light_ray, material)
@@ -139,12 +163,18 @@ def get_lights_color(lights, surface, ray_direction, hitting_point, material: Ma
         color = shadow_intensity * (diffused_color + specular_color)
 
         final_color += color
+        
+        write_time(t,'single_light')
 
     return final_color
 
 def current_shadow_intensity(light: Light, hitting_point, light_ray, planes, cubes, spheres):
     eps_hitting_point = hitting_point + 0.00001*light_ray
+
+    t = time.time()
     is_intersecting = is_ray_intersecting(eps_hitting_point, light_ray, planes, cubes, spheres)
+    write_time(t,'is_intersecting')
+
     shadow_intensity = 1
     if is_intersecting:
         shadow_intensity = 1-light.shadow_intensity
@@ -184,17 +214,24 @@ def calc_intersections(start, direction, planes, cubes, spheres):
     intersect_surfaces=[]
 
     for sphere in spheres:
+        t = time.time()
         t_s = calc_sphere_intersections(start, direction, sphere)
+        write_time(t,'sphere_intersections')
+
         if len(t_s):
             intersect_surfaces.append((sphere,t_s))
 
     for plane in planes:
+        t = time.time()
         t_s = plane_intersect_t(plane, start, direction)
+        write_time(t,'plane_intersections')
         if len(t_s):
             intersect_surfaces.append((plane,t_s))
 
     for cube in cubes:
+        t = time.time()
         t_s = cube_intersect_ts(cube, start, direction)
+        write_time(t,'cube_intersections')
         if len(t_s):
             intersect_surfaces.append((cube,t_s))
 
@@ -223,12 +260,15 @@ def calc_sphere_intersections(start, direction, sphere : Sphere):
     return ts
 
 def plane_intersect_t(plane : InfinitePlane, start, direction_vec): #returns list of t's
+    t_list = calc_plane_intersection(start, direction_vec, plane.normal, plane.offset)
+    return t_list if (len(t_list)>0 and t_list[0]>0) else []
+
+def calc_plane_intersection(start, direction_vec, plane_normal, plane_offset):
     #t = -(P0 • N - d) / (V • N)
-    if np.dot(direction_vec,plane.normal) == 0:
+    dot_prod = np.dot(direction_vec,plane_normal)
+    if dot_prod == 0:
         return []
-    t = - (np.dot(start,plane.normal)-plane.offset)/(np.dot(direction_vec,plane.normal))
-    #intersect_point = start + t*direction_vec
-    return [t] if t>0 else []
+    return [(plane_offset - np.dot(start, plane_normal)) / (dot_prod)]
 
 def cube_intersect_ts(cube : Cube, start, direction): #returns list of t's
     x_axis = np.array([1,0,0])
@@ -236,37 +276,48 @@ def cube_intersect_ts(cube : Cube, start, direction): #returns list of t's
     z_axis = np.array([0,0,1])
 
     offset = 0.5* cube.scale
-    x_p,y_p,z_p = cube.position[0],cube.position[1],cube.position[2]
 
-    up_point = cube.position+np.array([0,0,offset])   #z axis
-    down_point = cube.position+np.array([0,0,-offset]) #z axis
-    left_point = cube.position+np.array([0,0,-offset])   #y axis
-    right_point = cube.position+np.array([0,0,offset])  #y axis
-    near_point = cube.position+np.array([0,0,offset]) #x axis
-    far_point = cube.position+np.array([0,0,-offset])   #x axis
+    up_point = cube.position[2] + offset   #z axis
+    down_point = cube.position[2] - offset #z axis
+    left_point = cube.position[2] - offset   #y axis
+    right_point = cube.position[2] + offset  #y axis
+    near_point = cube.position[2] + offset #x axis
+    far_point = cube.position[2] - offset   #x axis
 
-    up_plane = InfinitePlane(z_axis, np.dot(z_axis,up_point), cube.material_index) #TODO: why?
-    down_plane = InfinitePlane(z_axis, np.dot(z_axis,down_point), cube.material_index)
-    left_plane = InfinitePlane(y_axis, np.dot(y_axis,left_point), cube.material_index)
-    right_plane = InfinitePlane(y_axis, np.dot(y_axis,right_point), cube.material_index)
-    near_plane = InfinitePlane(x_axis, np.dot(x_axis,near_point), cube.material_index)
-    far_plane = InfinitePlane(x_axis, np.dot(x_axis,far_point), cube.material_index)
-
-    cube_planes = [up_plane,down_plane,left_plane,right_plane,near_plane,far_plane]
     intersection_ts=[]
-    for plane in cube_planes:
-        intersection_ts+=plane_intersect_t(plane,start,direction)
+    # up_plane = (z_axis, np.dot(z_axis,up_point))
+    intersection_ts += calc_plane_intersection(start, direction, z_axis, np.dot(z_axis,up_point))
+
+    # down_plane = (z_axis, np.dot(z_axis,down_point))
+    intersection_ts += calc_plane_intersection(start, direction, z_axis, np.dot(z_axis,down_point))
+
+    # left_plane = (y_axis, np.dot(y_axis,left_point))
+    intersection_ts += calc_plane_intersection(start, direction, y_axis, np.dot(y_axis,left_point))
+
+    # right_plane = (y_axis, np.dot(y_axis,right_point))
+    intersection_ts += calc_plane_intersection(start, direction, y_axis, np.dot(y_axis,right_point))
+
+    # near_plane = (x_axis, np.dot(x_axis,near_point))
+    intersection_ts += calc_plane_intersection(start, direction, x_axis, np.dot(x_axis,near_point))
+
+    # far_plane = (x_axis, np.dot(x_axis,far_point))
+    intersection_ts += calc_plane_intersection(start, direction, x_axis, np.dot(x_axis,far_point))
+
+    # cube_planes = [up_plane,down_plane,left_plane,right_plane,near_plane,far_plane]
+    # intersection_ts=[]
+    # for plane in cube_planes:
+    #     intersection_ts+=plane_intersect_t(plane,start,direction)
 
     if len(intersection_ts)==0:
         return [] 
-
-    unique_ts=[]
-    for t in intersection_ts:
-        if not any(np.isclose(t, t_val) for t_val in unique_ts): #TODO check that works fine
-            unique_ts.append(t)
+    intersection_ts_np = np.array(intersection_ts)
+    unique_ts = np.unique(np.round(intersection_ts_np, decimals=5))
+    # for t in intersection_ts:
+    #     if not any(np.isclose(t, t_val) for t_val in unique_ts): #TODO check that works fine
+    #         unique_ts.append(t)
     #unique_ts=np.array(unique_ts)
 
-    intersection_points = [start+t*direction for t in unique_ts]
+    # intersection_points = [start+t*direction for t in unique_ts]
 
     #intersection_points = np.unique(np.array(intersection_points))
     # unique_points=[]
@@ -276,10 +327,7 @@ def cube_intersect_ts(cube : Cube, start, direction): #returns list of t's
 
     # intersection_points = np.array(unique_points)
 
-    intersection_points_idx = [i for i in range(len(intersection_points)) if point_in_face(intersection_points[i], x_p, y_p, z_p, offset)]
-
-    if len(intersection_points)==0:
-        return []
+    intersection_points_idx = [i for i in range(len(unique_ts)) if point_in_face(start + unique_ts[i]*direction, cube.position, offset)]
 
     intersection_ts=[unique_ts[i] for i in intersection_points_idx]
     sorted(intersection_ts)
@@ -289,10 +337,8 @@ def cube_intersect_ts(cube : Cube, start, direction): #returns list of t's
     #closest_point = intersection_points[np.argmin(norms)]
     #return closest_point
 
-def point_in_face(point, x_p, y_p, z_p, offset):
-    in_face = (z_p-offset < point[2] and point[2] < z_p+offset) and \
-              (y_p-offset < point[1] and point[1] < y_p+offset) and \
-              (x_p-offset < point[0] and point[0] < x_p+offset)
+def point_in_face(point, cube_center, offset):
+    in_face = np.all((cube_center - offset) < point) and np.all(point < (cube_center + offset))
     return in_face
 
 
@@ -369,7 +415,7 @@ def main():
     camera, scene_settings, objects = parse_scene_file(args.scene_file)
 
     image_array = render_scene(camera, scene_settings, objects, args.width, args.height)
-
+    print_timings()
     # Save the output image
     save_image(image_array)
 
