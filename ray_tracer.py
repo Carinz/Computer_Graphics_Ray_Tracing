@@ -85,6 +85,8 @@ def render_scene(camera: Camera, scene_settings: SceneSettings, objects, width, 
     for row in range(height):
         for col in range(width):
             pixel_coords = get_pixel_coordinates(row, col, screen_top_left, screen_vec_w, screen_vec_h, width, height)
+            if pixel_coords[0]==0 and pixel_coords[1] == 0:
+                breakd = 0
             direction = calc_normalized_vec_between_2_points(camera.position, pixel_coords)
             color = render_ray(camera.position, direction, scene_settings, materials, planes, cubes, spheres, lights, scene_settings.max_recursions)
             output_image[row][col] = color * 255
@@ -200,7 +202,7 @@ def calc_intersections(start, direction, planes, cubes, spheres):
     return sorted_surfaces
 
 def calc_sphere_intersections(start, direction, sphere : Sphere):
-    center_2_start = sphere.position - start
+    center_2_start = start - sphere.position
     a = np.dot(direction, direction)
     b = 2 * np.dot(direction, center_2_start)
     c = np.dot(center_2_start, center_2_start) - sphere.radius ** 2
@@ -243,12 +245,12 @@ def cube_intersect_ts(cube : Cube, start, direction): #returns list of t's
     near_point = cube.position+np.array([0,0,offset]) #x axis
     far_point = cube.position+np.array([0,0,-offset])   #x axis
 
-    up_plane = InfinitePlane(z_axis,np.dot(z_axis,up_point)) #TODO: why?
-    down_plane = InfinitePlane(z_axis,np.dot(z_axis,down_point))
-    left_plane = InfinitePlane(y_axis,np.dot(y_axis,left_point))
-    right_plane = InfinitePlane(y_axis,np.dot(y_axis,right_point))
-    near_plane = InfinitePlane(x_axis,np.dot(x_axis,near_point))
-    far_plane = InfinitePlane(x_axis,np.dot(x_axis,far_point))
+    up_plane = InfinitePlane(z_axis, np.dot(z_axis,up_point), cube.material_index) #TODO: why?
+    down_plane = InfinitePlane(z_axis, np.dot(z_axis,down_point), cube.material_index)
+    left_plane = InfinitePlane(y_axis, np.dot(y_axis,left_point), cube.material_index)
+    right_plane = InfinitePlane(y_axis, np.dot(y_axis,right_point), cube.material_index)
+    near_plane = InfinitePlane(x_axis, np.dot(x_axis,near_point), cube.material_index)
+    far_plane = InfinitePlane(x_axis, np.dot(x_axis,far_point), cube.material_index)
 
     cube_planes = [up_plane,down_plane,left_plane,right_plane,near_plane,far_plane]
     intersection_ts=[]
@@ -274,20 +276,24 @@ def cube_intersect_ts(cube : Cube, start, direction): #returns list of t's
 
     # intersection_points = np.array(unique_points)
 
-    intersection_points[ (z_p-offset<intersection_points[:,2]) & (intersection_points[:,2]<z_p+offset) ]
-    intersection_points[ (y_p-offset<intersection_points[:,1]) & (intersection_points[:,1]<y_p+offset) ]
-    intersection_points[ (x_p-offset<intersection_points[:,0]) & (intersection_points[:,0]<x_p+offset) ]
+    intersection_points_idx = [i for i in range(len(intersection_points)) if point_in_face(intersection_points[i], x_p, y_p, z_p, offset)]
 
     if len(intersection_points)==0:
         return []
 
-    intersection_ts=[(point-start)[0]/direction[0] for point in intersection_points]
+    intersection_ts=[unique_ts[i] for i in intersection_points_idx]
     sorted(intersection_ts)
     return intersection_ts
 
     #norms = np.linalg.norm(intersection_points - start, axis=1)
     #closest_point = intersection_points[np.argmin(norms)]
     #return closest_point
+
+def point_in_face(point, x_p, y_p, z_p, offset):
+    in_face = (z_p-offset < point[2] and point[2] < z_p+offset) and \
+              (y_p-offset < point[1] and point[1] < y_p+offset) and \
+              (x_p-offset < point[0] and point[0] < x_p+offset)
+    return in_face
 
 
 def get_reflected_vector(surface, point, ray_direction):
@@ -353,7 +359,7 @@ def save_image(image_array):
 
 def main():
     parser = argparse.ArgumentParser(description='Python Ray Tracer')
-    parser.add_argument('--scene_file', type=str, default='scenes/test.txt', help='Path to the scene file') #TODO change to pool
+    parser.add_argument('--scene_file', type=str, default='scenes/test_easy.txt', help='Path to the scene file') #TODO change to pool
     parser.add_argument('--output_image', type=str, default='output/test.png', help='Name of the output image file')
     parser.add_argument('--width', type=int, default=500, help='Image width')
     parser.add_argument('--height', type=int, default=500, help='Image height')
