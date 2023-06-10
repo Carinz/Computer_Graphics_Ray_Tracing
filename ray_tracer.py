@@ -1,4 +1,5 @@
 import argparse
+import random
 from PIL import Image
 import numpy as np
 import math
@@ -154,28 +155,63 @@ def render_ray(start, direction, scene_settings: SceneSettings, materials, plane
         transparency_color =  render_ray(out_point, direction, scene_settings, materials, planes, cubes, spheres, lights, iter_num-1)
     write_time(t,'transparent')
 
-    lights_color = get_lights_color(lights, nearest_surface, direction, in_point, material, planes, cubes, spheres)
-
+    lights_color = get_lights_color(lights, nearest_surface, direction, in_point, material, planes, cubes, spheres, scene_settings)
+   
     output_color = transparency_factor*transparency_color + (1-transparency_factor)*lights_color + reflection_color
     return output_color
 
 
-def get_lights_color(lights, surface, ray_direction, hitting_point, material: Material, planes, cubes, spheres):
+def get_lights_color(lights, surface, ray_direction, hitting_point, material: Material, planes, cubes, spheres, scene_settings):
     final_color = 0
     for light in lights:
-        #TODO: shadows!!!!!!!!!!!!!
-        t = time.time()
-        surface_2_light_ray = calc_normalized_vec_between_2_points(hitting_point, light.position)
-        shadow_intensity = current_shadow_intensity(light, hitting_point, surface_2_light_ray, planes, cubes, spheres)
-        diffused_color = calc_diffused_color(light, surface, ray_direction, hitting_point, surface_2_light_ray, material)
-        specular_color = calc_specular_color(light, surface, ray_direction, hitting_point, surface_2_light_ray, material)
-        color = shadow_intensity * (diffused_color + specular_color)
+        percentage = calc_shadow_percentage(light, hitting_point, scene_settings,planes,cubes,spheres)
+        light_intensity =  (1-light.shadow_intensity)+(light.shadow_intensity*percentage)
 
-        final_color += color
-        
-        write_time(t,'single_light')
+        surface_2_light_ray = calc_normalized_vec_between_2_points(hitting_point, light.position)
+        #shadow_intensity = current_shadow_intensity(light, hitting_point, surface_2_light_ray, planes, cubes, spheres)
+        diffused_color = calc_diffused_color(light, surface, ray_direction, hitting_point, surface_2_light_ray, material, light_intensity)
+        specular_color = calc_specular_color(light, surface, ray_direction, hitting_point, surface_2_light_ray, material, light_intensity)
+        #color = shadow_intensity * (diffused_color + specular_color)
+        #color = shadow_intensity * (diffused_color + specular_color)
+        #final_color += color
+        final_color+=(diffused_color+specular_color)
 
     return final_color
+
+def calc_shadow_percentage(light:Light, hitting_point, scene_settings:SceneSettings,planes,cubes,spheres):
+    N = scene_settings.root_number_shadow_rays
+    main_ray_direction = calc_normalized_vec_between_2_points(hitting_point, light.position)
+    x = np.cross(main_ray_direction, np.array([1, 0, 0]))
+    if (x == 0).all():
+        x = np.cross(main_ray_direction, np.array([0, 1, 0]))
+    x /= np.linalg.norm(x)
+    
+    y = np.cross(main_ray_direction, x)
+    y /= np.linalg.norm(y)
+
+    left_bottom = light.position-(light.radius/2)*x-(light.radius/2)*y
+
+    cell_len = light.radius / N
+    x = x*cell_len
+    y = y*cell_len
+
+    prior_surface=None
+    hit_light_count= 0
+    for i in range(N):
+        for j in range(N):
+            cell_pos = left_bottom + (i + random.random()) * x + (j + random.random()) * y
+            sub_ray_direction = calc_normalized_vec_between_2_points(hitting_point,cell_pos)
+            eps_hitting_point = hitting_point + 0.00001*sub_ray_direction
+            current_surface,is_intersect = is_ray_intersecting(eps_hitting_point,sub_ray_direction,planes,cubes,spheres, prior_surface)
+            prior_surface = current_surface if current_surface else prior_surface
+            #cell_light_ray = Ray(cell_pos, ray_vector)
+            #cell_surface, cell_intersect = intersect.find_intersect(scene, cell_light_ray, find_all=False)
+            if is_intersect:
+                hit_light_count += 1
+
+    percentage = float(hit_light_count) / float(N * N)
+    return percentage
+    #return (1 - light.shadow_intens) + (light.shadow_intens * fraction)
 
 def current_shadow_intensity(light: Light, hitting_point, light_ray, planes, cubes, spheres):
     eps_hitting_point = hitting_point + 0.00001*light_ray
@@ -190,34 +226,45 @@ def current_shadow_intensity(light: Light, hitting_point, light_ray, planes, cub
     return shadow_intensity
 
 
-def calc_diffused_color(light: Light, surface, ray_direction, hitting_point, surface_2_light_ray, material: Material):
+def calc_diffused_color(light: Light, surface, ray_direction, hitting_point, surface_2_light_ray, material: Material,light_intensity):
     surface_normal = get_normal(surface, hitting_point, ray_direction)
     dot_product = np.dot(surface_normal, surface_2_light_ray)
-    return dot_product * (light.color * material.diffuse_color)
+    return dot_product *light.color *light_intensity* material.diffuse_color
 
 
-def calc_specular_color(light: Light, surface, ray_direction, hitting_point, surface_2_light_ray, material: Material):
+def calc_specular_color(light: Light, surface, ray_direction, hitting_point, surface_2_light_ray, material: Material, light_intensity):
     reflected_light = get_reflected_vector(surface, hitting_point, surface_2_light_ray)
     dot_product = np.dot(reflected_light, -ray_direction)
-    return (light.color * material.specular_color) * light.specular_intensity * dot_product**material.shininess
+    return light.color * light_intensity*  material.specular_color * light.specular_intensity * (dot_product**material.shininess)
 
 
 
-def is_ray_intersecting(start, direction, planes, cubes, spheres):
+def is_ray_intersecting(start, direction, planes, cubes, spheres, prior_surface):
+    if prior_surface!=None:
+        if isinstance(prior_surface, Cube):
+            t_s = cube_intersect_ts(prior_surface, start, direction)
+        elif isinstance(prior_surface, InfinitePlane):
+            t_s = plane_intersect_t(prior_surface, start, direction)
+        elif isinstance(prior_surface, Sphere):
+            t_s =  calc_sphere_intersections(start, direction, prior_surface)
+        if len(t_s) > 0:
+            return prior_surface,True
+        
     for sphere in spheres:
         t_s = calc_sphere_intersections(start, direction, sphere)
         if len(t_s) > 0:
-            return True
+            return sphere,True
     for plane in planes:
         t_s = plane_intersect_t(plane, start, direction)
         if len(t_s) > 0:
-            return True
+            return plane,True
     for cube in cubes:
         t_s = cube_intersect_ts(cube, start, direction)
         if len(t_s) > 0:
-            return True
+            return cube,True
         
-    return False
+    return None,False
+
 
 def calc_intersections(start, direction, planes, cubes, spheres):
     intersect_surfaces=[]
