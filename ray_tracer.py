@@ -14,6 +14,13 @@ from surfaces.sphere import Sphere
 import time
 timing_dict = {}
 
+x_axis = np.array([1,0,0])
+y_axis = np.array([0,1,0])
+z_axis = np.array([0,0,1])
+
+axes_normals = np.stack([x_axis, x_axis, y_axis, y_axis, z_axis, z_axis])
+cube_faces = np.stack([x_axis, -x_axis, y_axis, -y_axis, z_axis, -z_axis])
+
 def write_time(start_time, key):
     t = time.time() - start_time
     if key in timing_dict.keys():
@@ -102,6 +109,8 @@ def render_scene(camera: Camera, scene_settings: SceneSettings, objects, width, 
             pixel_time = time.time()
             pixel_coords = get_pixel_coordinates(row, col, screen_top_left, screen_vec_w, screen_vec_h, width, height)
             direction = calc_normalized_vec_between_2_points(camera.position, pixel_coords)
+            # if not (col == 250 and row == 343):
+            #     continue
             color = render_ray(camera.position, direction, scene_settings, materials, planes, cubes, spheres, lights, scene_settings.max_recursions)
             write_time(pixel_time,'render_pixel')
             output_image[row][col] = color*255
@@ -262,7 +271,7 @@ def calc_sphere_intersections(start, direction, sphere : Sphere):
 def plane_intersect_t(plane : InfinitePlane, start, direction_vec): #returns list of t's
     t_list = calc_plane_intersection(start, direction_vec, plane.normal, plane.offset)
     return t_list if (len(t_list)>0 and t_list[0]>0) else []
-
+ 
 def calc_plane_intersection(start, direction_vec, plane_normal, plane_offset):
     #t = -(P0 • N - d) / (V • N)
     dot_prod = np.dot(direction_vec,plane_normal)
@@ -271,47 +280,52 @@ def calc_plane_intersection(start, direction_vec, plane_normal, plane_offset):
     return [(plane_offset - np.dot(start, plane_normal)) / (dot_prod)]
 
 def cube_intersect_ts(cube : Cube, start, direction): #returns list of t's
-    x_axis = np.array([1,0,0])
-    y_axis = np.array([0,1,0])
-    z_axis = np.array([0,0,1])
-
     offset = 0.5* cube.scale
 
-    up_point = cube.position[2] + offset   #z axis
-    down_point = cube.position[2] - offset #z axis
-    left_point = cube.position[2] - offset   #y axis
-    right_point = cube.position[2] + offset  #y axis
-    near_point = cube.position[2] + offset #x axis
-    far_point = cube.position[2] - offset   #x axis
+    faces_centers = cube.position + offset*cube_faces
+    faces_offsets = np.einsum('ij,ij->i', axes_normals, faces_centers)
 
-    intersection_ts=[]
-    # up_plane = (z_axis, np.dot(z_axis,up_point))
-    intersection_ts += calc_plane_intersection(start, direction, z_axis, np.dot(z_axis,up_point))
+    dot_product = np.dot(direction, axes_normals.T)
+    zero_dot = dot_product != 0
 
-    # down_plane = (z_axis, np.dot(z_axis,down_point))
-    intersection_ts += calc_plane_intersection(start, direction, z_axis, np.dot(z_axis,down_point))
+    intersection_ts_np = (faces_offsets[zero_dot] - np.dot(start, axes_normals[zero_dot].T)) / dot_product[zero_dot]
 
-    # left_plane = (y_axis, np.dot(y_axis,left_point))
-    intersection_ts += calc_plane_intersection(start, direction, y_axis, np.dot(y_axis,left_point))
+    # up_point = cube.position + offset*z_axis   #z axis
+    # down_point = cube.position - offset*z_axis #z axis
+    # left_point = cube.position - offset*y_axis   #y axis
+    # right_point = cube.position + offset*y_axis  #y axis
+    # near_point = cube.position + offset*x_axis #x axis
+    # far_point = cube.position - offset*x_axis   #x axis
 
-    # right_plane = (y_axis, np.dot(y_axis,right_point))
-    intersection_ts += calc_plane_intersection(start, direction, y_axis, np.dot(y_axis,right_point))
+    # intersection_ts=[]
+    # # up_plane = (z_axis, np.dot(z_axis,up_point))
+    # intersection_ts += calc_plane_intersection(start, direction, z_axis, np.dot(z_axis,up_point))
 
-    # near_plane = (x_axis, np.dot(x_axis,near_point))
-    intersection_ts += calc_plane_intersection(start, direction, x_axis, np.dot(x_axis,near_point))
+    # # down_plane = (z_axis, np.dot(z_axis,down_point))
+    # intersection_ts += calc_plane_intersection(start, direction, z_axis, np.dot(z_axis,down_point))
 
-    # far_plane = (x_axis, np.dot(x_axis,far_point))
-    intersection_ts += calc_plane_intersection(start, direction, x_axis, np.dot(x_axis,far_point))
+    # # left_plane = (y_axis, np.dot(y_axis,left_point))
+    # intersection_ts += calc_plane_intersection(start, direction, y_axis, np.dot(y_axis,left_point))
+
+    # # right_plane = (y_axis, np.dot(y_axis,right_point))
+    # intersection_ts += calc_plane_intersection(start, direction, y_axis, np.dot(y_axis,right_point))
+
+    # # near_plane = (x_axis, np.dot(x_axis,near_point))
+    # intersection_ts += calc_plane_intersection(start, direction, x_axis, np.dot(x_axis,near_point))
+
+    # # far_plane = (x_axis, np.dot(x_axis,far_point))
+    # intersection_ts += calc_plane_intersection(start, direction, x_axis, np.dot(x_axis,far_point))
 
     # cube_planes = [up_plane,down_plane,left_plane,right_plane,near_plane,far_plane]
     # intersection_ts=[]
     # for plane in cube_planes:
     #     intersection_ts+=plane_intersect_t(plane,start,direction)
 
-    if len(intersection_ts)==0:
+
+    # intersection_ts_np = np.array(intersection_ts)
+    if len(intersection_ts_np)==0:
         return [] 
-    intersection_ts_np = np.array(intersection_ts)
-    unique_ts = np.unique(np.round(intersection_ts_np, decimals=5))
+    unique_ts = np.unique(np.round(intersection_ts_np, decimals=10))
     # for t in intersection_ts:
     #     if not any(np.isclose(t, t_val) for t_val in unique_ts): #TODO check that works fine
     #         unique_ts.append(t)
@@ -327,18 +341,26 @@ def cube_intersect_ts(cube : Cube, start, direction): #returns list of t's
 
     # intersection_points = np.array(unique_points)
 
-    intersection_points_idx = [i for i in range(len(unique_ts)) if point_in_face(start + unique_ts[i]*direction, cube.position, offset)]
+    vec_dirs = np.dot(unique_ts.reshape(len(unique_ts),1),direction.reshape(1,3))
+    intersection_points = start + vec_dirs
 
-    intersection_ts=[unique_ts[i] for i in intersection_points_idx]
-    sorted(intersection_ts)
-    return intersection_ts
+    epsilon = 0.00001
+    in_face = np.all((cube.position - offset) < intersection_points+epsilon, axis=1) & np.all(intersection_points-epsilon < (cube.position + offset), axis=1)
+
+    # intersection_points_idx = [i for i in range(len(unique_ts)) if point_in_face(start + unique_ts[i]*direction, cube.position, offset)]
+
+    # intersection_ts=[unique_ts[i] for i in intersection_points_idx]
+    intersection_ts=unique_ts[in_face]
+    
+    return [] if len(intersection_ts) == 0 else sorted(intersection_ts)
 
     #norms = np.linalg.norm(intersection_points - start, axis=1)
     #closest_point = intersection_points[np.argmin(norms)]
     #return closest_point
 
 def point_in_face(point, cube_center, offset):
-    in_face = np.all((cube_center - offset) < point) and np.all(point < (cube_center + offset))
+    epsilon = 0.00001
+    in_face = np.all((cube_center - offset) < point+epsilon) and np.all(point-epsilon < (cube_center + offset))
     return in_face
 
 
