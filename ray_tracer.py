@@ -1,4 +1,5 @@
 import argparse
+import random
 from PIL import Image
 import numpy as np
 import math
@@ -13,7 +14,7 @@ from surfaces.sphere import Sphere
 
 import time
 timing_dict = {}
-
+EPSILON = 0.001
 x_axis = np.array([1,0,0])
 y_axis = np.array([0,1,0])
 z_axis = np.array([0,0,1])
@@ -109,7 +110,7 @@ def render_scene(camera: Camera, scene_settings: SceneSettings, objects, width, 
             pixel_time = time.time()
             pixel_coords = get_pixel_coordinates(row, col, screen_top_left, screen_vec_w, screen_vec_h, width, height)
             direction = calc_normalized_vec_between_2_points(camera.position, pixel_coords)
-            # if not (col == 250 and row == 343):
+            # if not (col == 20 and row == 20):
             #     continue
             color = render_ray(camera.position, direction, scene_settings, materials, planes, cubes, spheres, lights, scene_settings.max_recursions)
             write_time(pixel_time,'render_pixel')
@@ -137,7 +138,7 @@ def render_ray(start, direction, scene_settings: SceneSettings, materials, plane
     direction_reflect = get_reflected_vector(nearest_surface, in_point, direction)
 
 
-    reflection_color =  material.reflection_color * render_ray(in_point, 
+    reflection_color =  material.reflection_color * render_ray(in_point+EPSILON*direction, 
                                                                direction_reflect, 
                                                                scene_settings, 
                                                                materials, planes, 
@@ -151,73 +152,118 @@ def render_ray(start, direction, scene_settings: SceneSettings, materials, plane
     if transparency_factor == 0:
         transparency_color = np.zeros(3)
     else:
-        transparency_color =  render_ray(out_point, direction, scene_settings, materials, planes, cubes, spheres, lights, iter_num-1)
+        transparency_color =  render_ray(out_point+EPSILON*direction, direction, scene_settings, materials, planes, cubes, spheres, lights, iter_num-1)
     write_time(t,'transparent')
 
-    lights_color = get_lights_color(lights, nearest_surface, direction, in_point, material, planes, cubes, spheres)
-
+    lights_color = get_lights_color(lights, nearest_surface, direction, in_point, material, planes, cubes, spheres, scene_settings)
+   
     output_color = transparency_factor*transparency_color + (1-transparency_factor)*lights_color + reflection_color
+    output_color=np.clip(output_color, 0., 1.)
     return output_color
 
 
-def get_lights_color(lights, surface, ray_direction, hitting_point, material: Material, planes, cubes, spheres):
+def get_lights_color(lights, surface, ray_direction, hitting_point, material: Material, planes, cubes, spheres, scene_settings):
     final_color = 0
     for light in lights:
-        #TODO: shadows!!!!!!!!!!!!!
-        t = time.time()
-        surface_2_light_ray = calc_normalized_vec_between_2_points(hitting_point, light.position)
-        shadow_intensity = current_shadow_intensity(light, hitting_point, surface_2_light_ray, planes, cubes, spheres)
-        diffused_color = calc_diffused_color(light, surface, ray_direction, hitting_point, surface_2_light_ray, material)
-        specular_color = calc_specular_color(light, surface, ray_direction, hitting_point, surface_2_light_ray, material)
-        color = shadow_intensity * (diffused_color + specular_color)
+        percentage = calc_shadow_percentage(light, hitting_point, scene_settings,planes,cubes,spheres)
+        light_intensity =  (1-light.shadow_intensity)+(light.shadow_intensity*percentage)
 
-        final_color += color
-        
-        write_time(t,'single_light')
+        surface_2_light_ray = calc_normalized_vec_between_2_points(hitting_point, light.position)
+        #shadow_intensity = current_shadow_intensity(light, hitting_point, surface_2_light_ray, planes, cubes, spheres)
+        diffused_color = calc_diffused_color(light, surface, ray_direction, hitting_point, surface_2_light_ray, material, light_intensity)
+        specular_color = calc_specular_color(light, surface, ray_direction, hitting_point, surface_2_light_ray, material, light_intensity)
+        #color = shadow_intensity * (diffused_color + specular_color)
+        #color = shadow_intensity * (diffused_color + specular_color)
+        #final_color += color
+        final_color+=(diffused_color+specular_color)
 
     return final_color
 
-def current_shadow_intensity(light: Light, hitting_point, light_ray, planes, cubes, spheres):
-    eps_hitting_point = hitting_point + 0.00001*light_ray
+def calc_shadow_percentage(light:Light, hitting_point, scene_settings:SceneSettings,planes,cubes,spheres):
+    N = int(scene_settings.root_number_shadow_rays)
+    main_ray_direction = calc_normalized_vec_between_2_points(hitting_point, light.position)
+    x = np.cross(main_ray_direction, np.array([1, 0, 0]))
+    if (x == 0).all():
+        x = np.cross(main_ray_direction, np.array([0, 1, 0]))
+    x /= np.linalg.norm(x)
+    
+    y = np.cross(main_ray_direction, x)
+    y /= np.linalg.norm(y)
 
-    t = time.time()
-    is_intersecting = is_ray_intersecting(eps_hitting_point, light_ray, planes, cubes, spheres)
-    write_time(t,'is_intersecting')
+    left_bottom = light.position-(light.radius/2)*x-(light.radius/2)*y
 
-    shadow_intensity = 1
-    if is_intersecting:
-        shadow_intensity = 1-light.shadow_intensity
-    return shadow_intensity
+    cell_len = light.radius / N
+    x = x*cell_len
+    y = y*cell_len
+
+    prior_surface=None
+    hit_light_count= 0
+    for i in range(N):
+        for j in range(N):
+            cell_pos = left_bottom + (i + random.random()) * x + (j + random.random()) * y
+            sub_ray_direction = calc_normalized_vec_between_2_points(hitting_point,cell_pos)
+            eps_hitting_point = hitting_point + EPSILON*sub_ray_direction
+            current_surface,is_intersect = is_ray_intersecting(eps_hitting_point,sub_ray_direction,planes,cubes,spheres, prior_surface)
+            prior_surface = current_surface if current_surface else prior_surface
+            #cell_light_ray = Ray(cell_pos, ray_vector)
+            #cell_surface, cell_intersect = intersect.find_intersect(scene, cell_light_ray, find_all=False)
+            if not is_intersect:
+                hit_light_count += 1
+
+    percentage = float(hit_light_count) / float(N * N)
+    return percentage
+    #return (1 - light.shadow_intens) + (light.shadow_intens * fraction)
 
 
-def calc_diffused_color(light: Light, surface, ray_direction, hitting_point, surface_2_light_ray, material: Material):
-    surface_normal = get_normal(surface, hitting_point, ray_direction)
+def calc_diffused_color(light: Light, surface, ray_direction, hitting_point, surface_2_light_ray, material: Material,light_intensity):
+    surface_normal = get_normal(surface, hitting_point, surface_2_light_ray)
     dot_product = np.dot(surface_normal, surface_2_light_ray)
-    return dot_product * (light.color * material.diffuse_color)
+    if dot_product < 0:
+        return np.zeros(3, dtype=float)
+    return dot_product *light.color *light_intensity* material.diffuse_color
 
 
-def calc_specular_color(light: Light, surface, ray_direction, hitting_point, surface_2_light_ray, material: Material):
-    reflected_light = get_reflected_vector(surface, hitting_point, surface_2_light_ray)
+def calc_specular_color(light: Light, surface, ray_direction, hitting_point, surface_2_light_ray, material: Material, light_intensity):
+    reflected_light = get_reflected_vector(surface, hitting_point, -surface_2_light_ray)
     dot_product = np.dot(reflected_light, -ray_direction)
-    return (light.color * material.specular_color) * light.specular_intensity * dot_product**material.shininess
+    if dot_product < 0:
+        return np.zeros(3, dtype=float)
+    return light.color * light_intensity*  material.specular_color * light.specular_intensity * (dot_product**material.shininess)
 
 
 
-def is_ray_intersecting(start, direction, planes, cubes, spheres):
-    for sphere in spheres:
-        t_s = calc_sphere_intersections(start, direction, sphere)
+def is_ray_intersecting(start, direction, planes, cubes, spheres, prior_surface):
+    if prior_surface!=None:
+        if isinstance(prior_surface, Cube):
+            t_s = cube_intersect_ts(prior_surface, start, direction)
+        elif isinstance(prior_surface, InfinitePlane):
+            t_s = plane_intersect_t(prior_surface, start, direction)
+        elif isinstance(prior_surface, Sphere):
+            t_s =  calc_sphere_intersections(start, direction, prior_surface)
         if len(t_s) > 0:
-            return True
-    for plane in planes:
-        t_s = plane_intersect_t(plane, start, direction)
-        if len(t_s) > 0:
-            return True
-    for cube in cubes:
-        t_s = cube_intersect_ts(cube, start, direction)
-        if len(t_s) > 0:
-            return True
+            return prior_surface,True
         
-    return False
+    for sphere in spheres:
+        t = time.time()
+        t_s = calc_sphere_intersections(start, direction, sphere)
+        write_time(t,'sphere_intersections')
+        if len(t_s) > 0:
+            return sphere,True
+    for plane in planes:
+        t = time.time()
+        t_s = plane_intersect_t(plane, start, direction)
+        write_time(t,'plane_intersections')
+        if len(t_s) > 0:
+            return plane,True
+    for cube in cubes:
+        t = time.time()
+        t_s = cube_intersect_ts(cube, start, direction)
+        write_time(t,'cube_intersections')
+        if len(t_s) > 0:
+            return cube,True
+        
+    return None,False
+
 
 def calc_intersections(start, direction, planes, cubes, spheres):
     intersect_surfaces=[]
@@ -265,12 +311,12 @@ def calc_sphere_intersections(start, direction, sphere : Sphere):
         t2 = (-b - math.sqrt(discriminant)) / (2 * a)
         ts = sorted([t1, t2])
 
-    ts = list(filter(lambda x: x>0, ts))
+    ts = list(filter(lambda x: x>EPSILON, ts))
     return ts
 
 def plane_intersect_t(plane : InfinitePlane, start, direction_vec): #returns list of t's
     t_list = calc_plane_intersection(start, direction_vec, plane.normal, plane.offset)
-    return t_list if (len(t_list)>0 and t_list[0]>0) else []
+    return t_list if (len(t_list)>0 and t_list[0]>EPSILON) else []
  
 def calc_plane_intersection(start, direction_vec, plane_normal, plane_offset):
     #t = -(P0 • N - d) / (V • N)
@@ -344,8 +390,7 @@ def cube_intersect_ts(cube : Cube, start, direction): #returns list of t's
     vec_dirs = np.dot(unique_ts.reshape(len(unique_ts),1),direction.reshape(1,3))
     intersection_points = start + vec_dirs
 
-    epsilon = 0.00001
-    in_face = np.all((cube.position - offset) < intersection_points+epsilon, axis=1) & np.all(intersection_points-epsilon < (cube.position + offset), axis=1)
+    in_face = np.all((cube.position - offset) < intersection_points+EPSILON, axis=1) & np.all(intersection_points-EPSILON < (cube.position + offset), axis=1)
 
     # intersection_points_idx = [i for i in range(len(unique_ts)) if point_in_face(start + unique_ts[i]*direction, cube.position, offset)]
 
@@ -359,8 +404,7 @@ def cube_intersect_ts(cube : Cube, start, direction): #returns list of t's
     #return closest_point
 
 def point_in_face(point, cube_center, offset):
-    epsilon = 0.00001
-    in_face = np.all((cube_center - offset) < point+epsilon) and np.all(point-epsilon < (cube_center + offset))
+    in_face = np.all((cube_center - offset) < point+EPSILON) and np.all(point-EPSILON < (cube_center + offset))
     return in_face
 
 
@@ -391,11 +435,11 @@ def calculate_cube_normal(cube: Cube, point):
 
 def calculate_plane_normal(plane: InfinitePlane, ray_direction):
     dot_product = np.dot(ray_direction, plane.normal)
-    normal = -plane.normal if dot_product > 0 else plane.normal
+    normal = plane.normal if dot_product > 0 else -plane.normal
     return normal
 
 def calculate_sphere_normal(sphere: Sphere, point):
-    return calc_normalized_vec_between_2_points(point, sphere.position)
+    return calc_normalized_vec_between_2_points(sphere.position, point)
 
 
 def calculate_reflected_vector(direction, normal):
@@ -427,7 +471,7 @@ def save_image(image_array):
 
 def main():
     parser = argparse.ArgumentParser(description='Python Ray Tracer')
-    parser.add_argument('--scene_file', type=str, default='scenes/test_easy.txt', help='Path to the scene file') #TODO change to pool
+    parser.add_argument('--scene_file', type=str, default='scenes/pool.txt', help='Path to the scene file') #TODO change to pool
     parser.add_argument('--output_image', type=str, default='output/test.png', help='Name of the output image file')
     parser.add_argument('--width', type=int, default=500, help='Image width')
     parser.add_argument('--height', type=int, default=500, help='Image height')
