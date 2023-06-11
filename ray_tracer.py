@@ -86,7 +86,7 @@ def calc_screen_parameters(camera: Camera, screen_ratio):
     screen_vec_w = normalize_vec(screen_vec_w)
     screen_vec_w = screen_vec_w * camera.screen_width
 
-    screen_vec_h = np.cross(camera.look_at, screen_vec_w)
+    screen_vec_h = np.cross(screen_vec_forward, screen_vec_w)
     screen_vec_h = normalize_vec(screen_vec_h)
     screen_vec_h = screen_vec_h * camera.screen_width * screen_ratio
     
