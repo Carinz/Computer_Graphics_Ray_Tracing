@@ -19,7 +19,6 @@ pln		0	0	1	0	7
 sph		0	0.5	1	1	1
 
 # Cubes:	cx   	cy   	cz  	scale 	mat_idx
-box		0	-2	0.25	0.5	3
 
 # Lights:	px	py	pz	r	g	b	spec	shadow	width
 lgt		0	3	5	0.5	0.5	0.3	1	0.9	1
