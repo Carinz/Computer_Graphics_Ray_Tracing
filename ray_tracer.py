@@ -22,13 +22,13 @@ z_axis = np.array([0,0,1])
 axes_normals = np.stack([x_axis, x_axis, y_axis, y_axis, z_axis, z_axis])
 cube_faces = np.stack([x_axis, -x_axis, y_axis, -y_axis, z_axis, -z_axis])
 
-# def write_time(start_time, key):
-#     t = time.time() - start_time
-#     if key in timing_dict.keys():
-#         timing_dict[key][0] += t
-#         timing_dict[key][1] += 1
-#     else:
-#         timing_dict[key] = [t, 1]
+def write_time(start_time, key):
+    t = time.time() - start_time
+    if key in timing_dict.keys():
+        timing_dict[key][0] += t
+        timing_dict[key][1] += 1
+    else:
+        timing_dict[key] = [t, 1]
 
 def print_timings():
     for key, val in  timing_dict.items():
@@ -83,11 +83,11 @@ def calc_screen_parameters(camera: Camera, screen_ratio):
     screen_vec_forward = camera.look_at - camera.position
     screen_vec_forward = normalize_vec(screen_vec_forward)
 
-    screen_vec_w = np.cross(screen_vec_forward, camera.up_vector)
+    screen_vec_w = np.cross(camera.up_vector, screen_vec_forward)
     screen_vec_w = normalize_vec(screen_vec_w)
     screen_vec_w = screen_vec_w * camera.screen_width
 
-    screen_vec_h = np.cross(screen_vec_forward, screen_vec_w)
+    screen_vec_h = np.cross(screen_vec_w, screen_vec_forward)
     screen_vec_h = normalize_vec(screen_vec_h)
     screen_vec_h = screen_vec_h * camera.screen_width * screen_ratio
     
@@ -110,7 +110,7 @@ def render_scene(camera: Camera, scene_settings: SceneSettings, objects, width, 
             # pixel_time = time.time()
             pixel_coords = get_pixel_coordinates(row, col, screen_top_left, screen_vec_w, screen_vec_h, width, height)
             direction = calc_normalized_vec_between_2_points(camera.position, pixel_coords)
-            # if not (col == 75 and row == 90):
+            # if not (col == 255 and row == 255):
             #     continue
             color = render_ray(camera.position, direction, scene_settings, materials, planes, cubes, spheres, lights, scene_settings.max_recursions)
             # write_time(pixel_time,'render_pixel')
@@ -124,7 +124,7 @@ def render_ray(start, direction, scene_settings: SceneSettings, materials, plane
     sorted_intersect = calc_intersections(start, direction, planes, cubes, spheres)# list of tuples: (object,[ts])
     # write_time(t,'calc_intersections')
 
-    if len(sorted_intersect)==0 or iter_num==1:
+    if len(sorted_intersect)==0 or iter_num==0:
         return scene_settings.background_color
 
     nearest_surface,nearest_ts = sorted_intersect[0] # t and surface
@@ -134,10 +134,10 @@ def render_ray(start, direction, scene_settings: SceneSettings, materials, plane
     material: Material = materials[nearest_surface.material_index-1]
 
     transparency_factor = material.transparency
-    # t = time.time()
+
+    lights_color = get_lights_color(lights, nearest_surface, direction, in_point, material, planes, cubes, spheres, scene_settings)
+
     direction_reflect = get_reflected_vector(nearest_surface, in_point, direction)
-
-
     reflection_color =  material.reflection_color * render_ray(in_point+EPSILON*direction_reflect, 
                                                                direction_reflect, 
                                                                scene_settings, 
@@ -146,16 +146,10 @@ def render_ray(start, direction, scene_settings: SceneSettings, materials, plane
                                                                spheres, 
                                                                lights, 
                                                                iter_num-1)
-    # write_time(t,'reflecting')
-
-    # t = time.time()
     if transparency_factor == 0:
         transparency_color = np.zeros(3)
     else:
         transparency_color =  render_ray(out_point+EPSILON*direction, direction, scene_settings, materials, planes, cubes, spheres, lights, iter_num-1)
-    # write_time(t,'transparent')
-
-    lights_color = get_lights_color(lights, nearest_surface, direction, in_point, material, planes, cubes, spheres, scene_settings)
    
     output_color = transparency_factor*transparency_color + (1-transparency_factor)*lights_color + reflection_color
     output_color=np.clip(output_color, 0., 1.)
@@ -169,12 +163,9 @@ def get_lights_color(lights, surface, ray_direction, hitting_point, material: Ma
         light_intensity =  (1-light.shadow_intensity)+(light.shadow_intensity*percentage)
 
         surface_2_light_ray = calc_normalized_vec_between_2_points(hitting_point, light.position)
-        #shadow_intensity = current_shadow_intensity(light, hitting_point, surface_2_light_ray, planes, cubes, spheres)
         diffused_color = calc_diffused_color(light, surface, ray_direction, hitting_point, surface_2_light_ray, material, light_intensity)
         specular_color = calc_specular_color(light, surface, ray_direction, hitting_point, surface_2_light_ray, material, light_intensity)
-        #color = shadow_intensity * (diffused_color + specular_color)
-        #color = shadow_intensity * (diffused_color + specular_color)
-        #final_color += color
+
         final_color+=(diffused_color+specular_color)
 
     return final_color
@@ -203,7 +194,7 @@ def calc_shadow_percentage(light:Light, hitting_point, scene_settings:SceneSetti
             cell_pos = left_bottom + (i + random.random()) * x + (j + random.random()) * y
             sub_ray_direction = calc_normalized_vec_between_2_points(hitting_point,cell_pos)
             eps_hitting_point = hitting_point + EPSILON*sub_ray_direction
-            current_surface,is_intersect = is_ray_intersecting(eps_hitting_point,sub_ray_direction,planes,cubes,spheres, prior_surface)
+            current_surface,is_intersect = is_ray_intersecting(eps_hitting_point, sub_ray_direction, planes, cubes, spheres, prior_surface)
             prior_surface = current_surface if current_surface else prior_surface
             #cell_light_ray = Ray(cell_pos, ray_vector)
             #cell_surface, cell_intersect = intersect.find_intersect(scene, cell_light_ray, find_all=False)
@@ -482,7 +473,7 @@ def main():
     camera, scene_settings, objects = parse_scene_file(args.scene_file)
 
     image_array = render_scene(camera, scene_settings, objects, args.width, args.height)
-    # print_timings()
+    print_timings()
     # Save the output image
     save_image(image_array, args.output_image)
 
