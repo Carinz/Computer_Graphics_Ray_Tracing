@@ -112,7 +112,7 @@ def render_scene(camera: Camera, scene_settings: SceneSettings, objects, width, 
             direction = calc_normalized_vec_between_2_points(camera.position, pixel_coords)
             # if not (col == 255 and row == 255):
             #     continue
-            color = render_ray(camera.position, direction, scene_settings, materials, planes, cubes, spheres, lights, scene_settings.max_recursions)
+            color = render_ray(camera.position, direction, scene_settings, materials, planes, cubes, spheres, lights, 0)
             # write_time(pixel_time,'render_pixel')
             output_image[row][col] = color*255
 
@@ -124,7 +124,7 @@ def render_ray(start, direction, scene_settings: SceneSettings, materials, plane
     sorted_intersect = calc_intersections(start, direction, planes, cubes, spheres)# list of tuples: (object,[ts])
     # write_time(t,'calc_intersections')
 
-    if len(sorted_intersect)==0 or iter_num==0:
+    if len(sorted_intersect) == 0 or iter_num == scene_settings.max_recursions:
         return scene_settings.background_color
 
     nearest_surface,nearest_ts = sorted_intersect[0] # t and surface
@@ -145,11 +145,11 @@ def render_ray(start, direction, scene_settings: SceneSettings, materials, plane
                                                                cubes, 
                                                                spheres, 
                                                                lights, 
-                                                               iter_num-1)
+                                                               iter_num + 1)
     if transparency_factor == 0:
         transparency_color = np.zeros(3)
     else:
-        transparency_color =  render_ray(out_point+EPSILON*direction, direction, scene_settings, materials, planes, cubes, spheres, lights, iter_num-1)
+        transparency_color =  render_ray(out_point+EPSILON*direction, direction, scene_settings, materials, planes, cubes, spheres, lights, 0)
    
     output_color = transparency_factor*transparency_color + (1-transparency_factor)*lights_color + reflection_color
     output_color=np.clip(output_color, 0., 1.)
@@ -463,8 +463,8 @@ def save_image(image_array, file_name):
 
 def main():
     parser = argparse.ArgumentParser(description='Python Ray Tracer')
-    parser.add_argument('--scene_file', type=str, help='Path to the scene file') #TODO change to pool
-    parser.add_argument('--output_image', type=str, help='Name of the output image file')
+    parser.add_argument('--scene_file', type=str, default='scenes/our_scene.txt', help='Path to the scene file') #TODO change to pool
+    parser.add_argument('--output_image', type=str, default='output/ours.png', help='Name of the output image file')
     parser.add_argument('--width', type=int, default=500, help='Image width')
     parser.add_argument('--height', type=int, default=500, help='Image height')
     args = parser.parse_args()
