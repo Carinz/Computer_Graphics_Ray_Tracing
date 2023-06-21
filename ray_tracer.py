@@ -34,7 +34,6 @@ def print_timings():
     for key, val in  timing_dict.items():
         print(f'{key}: total time = {round(val[0], 2)},   average time= {round(val[0]/val[1], 5) if val[1] > 0 else 0},    number of executions= {val[1]}')
 
-
 def parse_scene_file(file_path):
     objects = []
     camera = None
@@ -70,6 +69,7 @@ def parse_scene_file(file_path):
                 raise ValueError("Unknown object type: {}".format(obj_type))
     return camera, scene_settings, objects
 
+# seperates the different objects from list of objects
 def seperate_objects(objects):
     materials = list(filter(lambda x: isinstance(x, Material) ,objects))
     planes = list(filter(lambda x: isinstance(x, InfinitePlane) ,objects))
@@ -79,6 +79,7 @@ def seperate_objects(objects):
 
     return materials, planes, cubes, spheres, lights
 
+# returns the screen top left position, and direction vectors of screen
 def calc_screen_parameters(camera: Camera, screen_ratio):
     screen_vec_forward = camera.look_at - camera.position
     screen_vec_forward = normalize_vec(screen_vec_forward)
@@ -95,11 +96,12 @@ def calc_screen_parameters(camera: Camera, screen_ratio):
     screen_top_left = screen_center - 0.5*screen_vec_w - 0.5*screen_vec_h
     return screen_top_left, screen_vec_w, screen_vec_h
 
+# converts screen pixel to real position 
 def get_pixel_coordinates(row, col, top_left, screen_vec_w, screen_vec_h, width, height):
     pixel_coords = top_left + (col/width)*screen_vec_w + (row/height)*screen_vec_h
     return pixel_coords
 
-
+# the screen in initialized and for each pixel of the screen calculates the color. returns the final image
 def render_scene(camera: Camera, scene_settings: SceneSettings, objects, width, height):
     output_image = np.zeros((height, width, 3))
     screen_ratio = height/width
@@ -118,11 +120,9 @@ def render_scene(camera: Camera, scene_settings: SceneSettings, objects, width, 
 
     return output_image
 
-
+# the recursive function that renders ray from "start" to "direction", and returns the color according to the color calculation formula
 def render_ray(start, direction, scene_settings: SceneSettings, materials, planes, cubes, spheres, lights, iter_num):
-    # t = time.time()
     sorted_intersect = calc_intersections(start, direction, planes, cubes, spheres)# list of tuples: (object,[ts])
-    # write_time(t,'calc_intersections')
 
     if len(sorted_intersect) == 0 or iter_num == scene_settings.max_recursions:
         return scene_settings.background_color
@@ -155,7 +155,7 @@ def render_ray(start, direction, scene_settings: SceneSettings, materials, plane
     output_color=np.clip(output_color, 0., 1.)
     return output_color
 
-
+# returns the effect of the lights on the color, considering all lights of the scene, including soft shadows
 def get_lights_color(lights, surface, ray_direction, hitting_point, material: Material, planes, cubes, spheres, scene_settings):
     final_color = 0
     for light in lights:
@@ -170,6 +170,7 @@ def get_lights_color(lights, surface, ray_direction, hitting_point, material: Ma
 
     return final_color
 
+# returns shadows precentage a light lits a point according to soft shadows implementation
 def calc_shadow_percentage(light:Light, hitting_point, scene_settings:SceneSettings,planes,cubes,spheres):
     N = int(scene_settings.root_number_shadow_rays)
     main_ray_direction = calc_normalized_vec_between_2_points(hitting_point, light.position)
@@ -196,16 +197,13 @@ def calc_shadow_percentage(light:Light, hitting_point, scene_settings:SceneSetti
             eps_hitting_point = hitting_point + EPSILON*sub_ray_direction
             current_surface,is_intersect = is_ray_intersecting(eps_hitting_point, sub_ray_direction, planes, cubes, spheres, prior_surface)
             prior_surface = current_surface if current_surface else prior_surface
-            #cell_light_ray = Ray(cell_pos, ray_vector)
-            #cell_surface, cell_intersect = intersect.find_intersect(scene, cell_light_ray, find_all=False)
             if not is_intersect:
                 hit_light_count += 1
 
     percentage = float(hit_light_count) / float(N * N)
     return percentage
-    #return (1 - light.shadow_intens) + (light.shadow_intens * fraction)
 
-
+# returns the diffusion color of a light on a surface
 def calc_diffused_color(light: Light, surface, ray_direction, hitting_point, surface_2_light_ray, material: Material,light_intensity):
     surface_normal = get_normal(surface, hitting_point, surface_2_light_ray)
     dot_product = np.dot(surface_normal, surface_2_light_ray)
@@ -213,7 +211,7 @@ def calc_diffused_color(light: Light, surface, ray_direction, hitting_point, sur
         return np.zeros(3, dtype=float)
     return dot_product *light.color *light_intensity* material.diffuse_color
 
-
+# returns the specular color of a light on a surface
 def calc_specular_color(light: Light, surface, ray_direction, hitting_point, surface_2_light_ray, material: Material, light_intensity):
     reflected_light = get_reflected_vector(surface, hitting_point, -surface_2_light_ray)
     dot_product = np.dot(reflected_light, -ray_direction)
@@ -221,8 +219,7 @@ def calc_specular_color(light: Light, surface, ray_direction, hitting_point, sur
         return np.zeros(3, dtype=float)
     return light.color * light_intensity*  material.specular_color * light.specular_intensity * (dot_product**material.shininess)
 
-
-
+# checks if a ray intersect with any surface
 def is_ray_intersecting(start, direction, planes, cubes, spheres, prior_surface):
     if prior_surface!=None:
         if isinstance(prior_surface, Cube):
@@ -235,55 +232,44 @@ def is_ray_intersecting(start, direction, planes, cubes, spheres, prior_surface)
             return prior_surface,True
         
     for sphere in spheres:
-        # t = time.time()
         t_s = calc_sphere_intersections(start, direction, sphere)
-        # write_time(t,'sphere_intersections')
         if len(t_s) > 0:
             return sphere,True
     for plane in planes:
-        # t = time.time()
         t_s = plane_intersect_t(plane, start, direction)
-        # write_time(t,'plane_intersections')
         if len(t_s) > 0:
             return plane,True
     for cube in cubes:
-        # t = time.time()
         t_s = cube_intersect_ts(cube, start, direction)
-        # write_time(t,'cube_intersections')
         if len(t_s) > 0:
             return cube,True
         
     return None,False
 
-
+# retuns all intersection surfaces of a ray that starts at "start" in direction "direction" and the distances from start
 def calc_intersections(start, direction, planes, cubes, spheres):
     intersect_surfaces=[]
 
     for sphere in spheres:
-        # t = time.time()
         t_s = calc_sphere_intersections(start, direction, sphere)
-        # write_time(t,'sphere_intersections')
 
         if len(t_s):
             intersect_surfaces.append((sphere,t_s))
 
     for plane in planes:
-        # t = time.time()
         t_s = plane_intersect_t(plane, start, direction)
-        # write_time(t,'plane_intersections')
         if len(t_s):
             intersect_surfaces.append((plane,t_s))
 
     for cube in cubes:
-        # t = time.time()
         t_s = cube_intersect_ts(cube, start, direction)
-        # write_time(t,'cube_intersections')
         if len(t_s):
             intersect_surfaces.append((cube,t_s))
 
     sorted_surfaces = sorted(intersect_surfaces, key=lambda x: x[1][0])
     return sorted_surfaces
 
+# returns all distances from start of intersections points of spheres if sphere intersects with this ray
 def calc_sphere_intersections(start, direction, sphere : Sphere):
     center_2_start = start - sphere.position
     a = np.dot(direction, direction)
@@ -297,7 +283,6 @@ def calc_sphere_intersections(start, direction, sphere : Sphere):
         t = -b / (2 * a)
         ts = [t]
     else:
-        # Two intersections
         t1 = (-b + math.sqrt(discriminant)) / (2 * a)
         t2 = (-b - math.sqrt(discriminant)) / (2 * a)
         ts = sorted([t1, t2])
@@ -305,17 +290,20 @@ def calc_sphere_intersections(start, direction, sphere : Sphere):
     ts = list(filter(lambda x: x>EPSILON, ts))
     return ts
 
+# wrapping function of planes that intersect the ray. returns distances from start
 def plane_intersect_t(plane : InfinitePlane, start, direction_vec): #returns list of t's
     t_list = calc_plane_intersection(start, direction_vec, plane.normal, plane.offset)
     return t_list if (len(t_list)>0 and t_list[0]>EPSILON) else []
- 
+
+# returns distances from start of intersections of plane with ray 
 def calc_plane_intersection(start, direction_vec, plane_normal, plane_offset):
-    #t = -(P0 • N - d) / (V • N)
+    # t = -(P0 • N - d) / (V • N)
     dot_prod = np.dot(direction_vec,plane_normal)
     if dot_prod == 0:
         return []
     return [(plane_offset - np.dot(start, plane_normal)) / (dot_prod)]
 
+# returns all distances from start of intersections points of cubes if cube intersects with this ray
 def cube_intersect_ts(cube : Cube, start, direction): #returns list of t's
     offset = 0.5* cube.scale
 
@@ -327,84 +315,30 @@ def cube_intersect_ts(cube : Cube, start, direction): #returns list of t's
 
     intersection_ts_np = (faces_offsets[zero_dot] - np.dot(start, axes_normals[zero_dot].T)) / dot_product[zero_dot]
 
-    # up_point = cube.position + offset*z_axis   #z axis
-    # down_point = cube.position - offset*z_axis #z axis
-    # left_point = cube.position - offset*y_axis   #y axis
-    # right_point = cube.position + offset*y_axis  #y axis
-    # near_point = cube.position + offset*x_axis #x axis
-    # far_point = cube.position - offset*x_axis   #x axis
-
-    # intersection_ts=[]
-    # # up_plane = (z_axis, np.dot(z_axis,up_point))
-    # intersection_ts += calc_plane_intersection(start, direction, z_axis, np.dot(z_axis,up_point))
-
-    # # down_plane = (z_axis, np.dot(z_axis,down_point))
-    # intersection_ts += calc_plane_intersection(start, direction, z_axis, np.dot(z_axis,down_point))
-
-    # # left_plane = (y_axis, np.dot(y_axis,left_point))
-    # intersection_ts += calc_plane_intersection(start, direction, y_axis, np.dot(y_axis,left_point))
-
-    # # right_plane = (y_axis, np.dot(y_axis,right_point))
-    # intersection_ts += calc_plane_intersection(start, direction, y_axis, np.dot(y_axis,right_point))
-
-    # # near_plane = (x_axis, np.dot(x_axis,near_point))
-    # intersection_ts += calc_plane_intersection(start, direction, x_axis, np.dot(x_axis,near_point))
-
-    # # far_plane = (x_axis, np.dot(x_axis,far_point))
-    # intersection_ts += calc_plane_intersection(start, direction, x_axis, np.dot(x_axis,far_point))
-
-    # cube_planes = [up_plane,down_plane,left_plane,right_plane,near_plane,far_plane]
-    # intersection_ts=[]
-    # for plane in cube_planes:
-    #     intersection_ts+=plane_intersect_t(plane,start,direction)
-
-
-    # intersection_ts_np = np.array(intersection_ts)
     intersection_ts_np = intersection_ts_np[intersection_ts_np > EPSILON]
     if len(intersection_ts_np)==0:
         return [] 
     unique_ts = np.unique(np.round(intersection_ts_np, decimals=10))
-    # for t in intersection_ts:
-    #     if not any(np.isclose(t, t_val) for t_val in unique_ts): #TODO check that works fine
-    #         unique_ts.append(t)
-    #unique_ts=np.array(unique_ts)
-
-    # intersection_points = [start+t*direction for t in unique_ts]
-
-    #intersection_points = np.unique(np.array(intersection_points))
-    # unique_points=[]
-    # for point in intersection_points:
-    #     if not any(np.allclose(point, selected_vector) for selected_vector in unique_points):
-    #         unique_points.append(point)
-
-    # intersection_points = np.array(unique_points)
+    
 
     vec_dirs = np.dot(unique_ts.reshape(len(unique_ts),1),direction.reshape(1,3))
     intersection_points = start + vec_dirs
 
     in_face = np.all((cube.position - offset) < intersection_points+EPSILON, axis=1) & np.all(intersection_points-EPSILON < (cube.position + offset), axis=1)
-
-    # intersection_points_idx = [i for i in range(len(unique_ts)) if point_in_face(start + unique_ts[i]*direction, cube.position, offset)]
-
-    # intersection_ts=[unique_ts[i] for i in intersection_points_idx]
     intersection_ts=unique_ts[in_face]
     
     return [] if len(intersection_ts) == 0 else sorted(intersection_ts)
 
-    #norms = np.linalg.norm(intersection_points - start, axis=1)
-    #closest_point = intersection_points[np.argmin(norms)]
-    #return closest_point
+## helper functions for calculations
 
 def point_in_face(point, cube_center, offset):
     in_face = np.all((cube_center - offset) < point+EPSILON) and np.all(point-EPSILON < (cube_center + offset))
     return in_face
 
-
 def get_reflected_vector(surface, point, ray_direction):
     normal = get_normal(surface, point, ray_direction)
     reflected = calculate_reflected_vector(ray_direction, normal)
     return reflected
-
 
 def get_normal(surface, point, ray_direction):
     if isinstance(surface, Cube):
@@ -433,7 +367,6 @@ def calculate_plane_normal(plane: InfinitePlane, ray_direction):
 def calculate_sphere_normal(sphere: Sphere, point):
     return calc_normalized_vec_between_2_points(sphere.position, point)
 
-
 def calculate_reflected_vector(direction, normal):
     incident_normalized = normalize_vec(direction)
 
@@ -443,11 +376,9 @@ def calculate_reflected_vector(direction, normal):
 
     return reflection_normalized
 
-
 def calc_normalized_vec_between_2_points(point_start, point_end):
     vec = point_end - point_start
     return normalize_vec(vec)
-
 
 def normalize_vec(vec):
     normalized = vec / np.linalg.norm(vec)
@@ -463,20 +394,24 @@ def save_image(image_array, file_name):
 
 def main():
     parser = argparse.ArgumentParser(description='Python Ray Tracer')
-    parser.add_argument('--scene_file', type=str, default='scenes/our_scene.txt', help='Path to the scene file') #TODO change to pool
-    parser.add_argument('--output_image', type=str, default='output/ours.png', help='Name of the output image file')
+    parser.add_argument('--scene_file', type=str, help='Path to the scene file') 
+    parser.add_argument('--output_image', type=str, help='Name of the output image file')
     parser.add_argument('--width', type=int, default=500, help='Image width')
     parser.add_argument('--height', type=int, default=500, help='Image height')
     args = parser.parse_args()
 
     # Parse the scene file
     camera, scene_settings, objects = parse_scene_file(args.scene_file)
-
+    
+    #start_time = time.time()
     image_array = render_scene(camera, scene_settings, objects, args.width, args.height)
-    print_timings()
+    #end_time = time.time()
+    #print(end_time-start_time)
+    #print_timings()
     # Save the output image
     save_image(image_array, args.output_image)
 
 
 if __name__ == '__main__':
     main()
+
